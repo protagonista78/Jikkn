@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Pedidos - Papelaria</title>
+    <link rel="manifest" href="manifest.json">
+    <style>
+        :root {
+            --primary: #d32f2f;
+            --success: #2e7d32;
+            --bg: #f8f9fa;
+            --card-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        body {
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container { max-width: 1000px; margin: auto; }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: var(--primary);
+            color: white;
+            border-radius: 12px;
+        }
+
+        .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+
+        .tab-btn {
+            flex: 1; padding: 15px; border: none;
+            background: #dfe6e9; cursor: pointer;
+            font-weight: bold; border-radius: 8px;
+        }
+
+        .tab-btn.active { background: var(--primary); color: white; }
+
+        .card {
+            background: white; padding: 20px;
+            border-radius: 12px; box-shadow: var(--card-shadow);
+            margin-bottom: 30px;
+        }
+
+        .form-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 15px; }
+        .full-width { grid-column: span 2; }
+
+        input, textarea {
+            width: 100%; padding: 12px;
+            border: 1px solid #dfe6e9; border-radius: 8px;
+            box-sizing: border-box; font-size: 15px;
+        }
+
+        button.btn-main {
+            background-color: var(--primary); color: white;
+            border: none; padding: 15px; border-radius: 8px;
+            cursor: pointer; font-weight: bold; width: 100%; margin-top: 10px;
+        }
+
+        .backup-bar {
+            display: flex; gap: 10px; margin-bottom: 10px; justify-content: center;
+        }
+
+        .btn-backup {
+            background: #636e72; color: white; border: none;
+            padding: 5px 10px; border-radius: 4px; cursor: pointer; font-size: 12px;
+        }
+
+        .stat-box {
+            background: white; padding: 15px; border-radius: 8px;
+            text-align: center; border-bottom: 4px solid var(--success);
+            margin-bottom: 20px;
+        }
+
+        .pedido-card {
+            background: white; margin-bottom: 15px; padding: 20px;
+            border-radius: 10px; border-left: 6px solid #dfe6e9;
+            display: flex; justify-content: space-between; align-items: center;
+            box-shadow: var(--card-shadow);
+        }
+
+        .pedido-card.status-entregue { border-left-color: var(--success); }
+        .pedido-card.status-pendente { border-left-color: #f1c40f; }
+
+        .info h3 { margin: 0 0 5px 0; color: var(--primary); }
+        .info p { margin: 3px 0; font-size: 14px; color: #636e72; }
+        .valor-tag { font-weight: bold; color: var(--success); font-size: 1.1em; display: block; margin-top: 5px; }
+
+        .acoes { display: flex; gap: 10px; }
+        .btn-status { background: var(--success); color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+        .btn-del { background: #e74c3c; color: white; border: none; padding: 8px 12px; border-radius: 6px; cursor: pointer; }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>📦 Gestão de Pedidos</h1>
+    </header>
+
+    <div class="backup-bar">
+        <button class="btn-backup" onclick="exportarBackup()">📥 Salvar Backup (Baixar)</button>
+        <button class="btn-backup" onclick="document.getElementById('inputBackup').click()">📤 Restaurar Backup</button>
+        <input type="file" id="inputBackup" class="hidden" onchange="importarBackup(this)">
+    </div>
+
+    <div class="tabs">
+        <button class="tab-btn active" onclick="mudarAba('cadastro', this)">Novo / Pendentes</button>
+        <button class="tab-btn" onclick="mudarAba('entregues', this)">Histórico de Entregues</button>
+    </div>
+
+    <div id="aba-cadastro">
+        <div class="card">
+            <h3>Novo Registro</h3>
+            <div class="form-grid">
+                <input type="text" id="cliente" placeholder="Nome do Cliente">
+                <input type="number" id="valor" placeholder="Valor R$" step="0.01">
+                <input type="date" id="data_pedido">
+                <input type="text" id="endereco" placeholder="Endereço Completo">
+                <textarea id="itens" class="full-width" rows="3" placeholder="Descrição do Pedido..."></textarea>
+                <button class="btn-main" onclick="adicionarPedido()">CADASTRAR PEDIDO</button>
+            </div>
+        </div>
+        <div id="listaPendentes"></div>
+    </div>
+
+    <div id="aba-entregues" class="hidden">
+        <div class="stat-box">
+            <small>Total Faturado (Entregues)</small>
+            <div id="total-entregues" style="font-weight: bold; font-size: 1.5em; color: var(--success);">R$ 0,00</div>
+        </div>
+        <div id="listaEntregues"></div>
+    </div>
+</div>
+
+<script>
+    // Registro do Service Worker para PWA
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('Service Worker registrado!', reg))
+                .catch(err => console.log('Erro ao registrar Service Worker', err));
+        });
+    }
+
+    let pedidos = JSON.parse(localStorage.getItem('papelaria_v5')) || [];
+    document.getElementById('data_pedido').valueAsDate = new Date();
+
+    function mudarAba(aba, btn) {
+        document.getElementById('aba-cadastro').classList.toggle('hidden', aba !== 'cadastro');
+        document.getElementById('aba-entregues').classList.toggle('hidden', aba !== 'entregues');
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        renderizar();
+    }
+
+    function adicionarPedido() {
+        const cliente = document.getElementById('cliente').value;
+        const valor = document.getElementById('valor').value;
+        const dataP = document.getElementById('data_pedido').value;
+        const endereco = document.getElementById('endereco').value;
+        const itens = document.getElementById('itens').value;
+
+        if (!cliente || !valor || !dataP || !endereco || !itens) {
+            alert("Erro: Preencha todos os campos.");
+            return;
+        }
+
+        const novo = {
+            id: Date.now(),
+            cliente,
+            valor: parseFloat(valor),
+            dataPedido: dataP,
+            dataEntrega: null,
+            endereco,
+            itens,
+            status: 'pendente'
+        };
+
+        pedidos.unshift(novo);
+        salvar();
+        limpar();
+    }
+
+    function alternarStatus(id) {
+        pedidos = pedidos.map(p => {
+            if(p.id === id) {
+                p.status = 'entregue';
+                p.dataEntrega = new Date().toISOString().split('T')[0];
+            }
+            return p;
+        });
+        salvar();
+    }
+
+    function excluir(id) {
+        if(confirm("Excluir registro?")) {
+            pedidos = pedidos.filter(p => p.id !== id);
+            salvar();
+        }
+    }
+
+    function salvar() {
+        localStorage.setItem('papelaria_v5', JSON.stringify(pedidos));
+        renderizar();
+    }
+
+    function exportarBackup() {
+        const data = JSON.stringify(pedidos);
+        const blob = new Blob([data], {type: 'application/json'});
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `backup_papelaria_${new Date().toLocaleDateString()}.json`;
+        a.click();
+    }
+
+    function importarBackup(input) {
+        const reader = new FileReader();
+        reader.onload = function() {
+            try {
+                const dados = JSON.parse(reader.result);
+                if(Array.isArray(dados)) {
+                    pedidos = dados;
+                    salvar();
+                    alert("Backup restaurado com sucesso!");
+                }
+            } catch(e) { alert("Arquivo de backup inválido."); }
+        };
+        reader.readAsText(input.files[0]);
+    }
+
+    function limpar() {
+        document.querySelectorAll('input:not([type=date]), textarea').forEach(i => i.value = '');
+        document.getElementById('data_pedido').valueAsDate = new Date();
+    }
+
+    function renderizar() {
+        const listaPendentes = document.getElementById('listaPendentes');
+        const listaEntregues = document.getElementById('listaEntregues');
+        const totalEntreguesEl = document.getElementById('total-entregues');
+        
+        listaPendentes.innerHTML = '';
+        listaEntregues.innerHTML = '';
+        let somaEntregues = 0;
+
+        pedidos.forEach(p => {
+            const dataP = p.dataPedido.split('-').reverse().join('/');
+            const dataE = p.dataEntrega ? p.dataEntrega.split('-').reverse().join('/') : '-';
+            
+            const card = document.createElement('div');
+            card.className = `pedido-card status-${p.status}`;
+            
+            const btnAcao = p.status === 'pendente' 
+                ? `<button class="btn-status" onclick="alternarStatus(${p.id})">✔️ Entregar</button>` 
+                : '';
+
+            card.innerHTML = `
+                <div class="info">
+                    <h3>${p.cliente}</h3>
+                    <p><strong>Pedido:</strong> ${dataP} | <strong>Entrega:</strong> ${dataE}</p>
+                    <p><strong>Itens:</strong> ${p.itens}</p>
+                    <p><strong>📍:</strong> ${p.endereco}</p>
+                    <span class="valor-tag">R$ ${p.valor.toLocaleString('pt-BR', {minimumFractionDigits: 2})}</span>
+                </div>
+                <div class="acoes">
+                    ${btnAcao}
+                    <button class="btn-del" onclick="excluir(${p.id})">🗑️</button>
+                </div>
+            `;
+
+            if (p.status === 'pendente') listaPendentes.appendChild(card);
+            else {
+                somaEntregues += p.valor;
+                listaEntregues.appendChild(card);
+            }
+        });
+        totalEntreguesEl.innerText = `R$ ${somaEntregues.toLocaleString('pt-BR', {minimumFractionDigits: 2})}`;
+    }
+
+    renderizar();
+</script>
+</body>
+</html>
